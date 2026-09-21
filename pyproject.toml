@@ -1,0 +1,33 @@
+[project]
+name = "jevme"
+version = "0.1.0"
+description = "Talk to your Mac: live speech → Jev decisions → actions in any app, mid-sentence. Self-learning."
+authors = [
+    { name = "Daniel Ye" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "anthropic>=1.7.0",
+    "httpx>=0.28.1",
+    "pyobjc-framework-applicationservices>=12.2.2",
+    "pyobjc-framework-avfoundation>=12.2.2",
+    "pyobjc-framework-cocoa>=12.2.2",
+    "pyobjc-framework-quartz>=12.2.2",
+    "pyobjc-framework-speech>=12.2.2",
+]
+
+[project.scripts]
+jevme = "jevme.main:main"
+jevme-replay = "jevme.replay:main"
+
+[build-system]
+requires = ["uv_build>=0.12.10,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-root = ""
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]

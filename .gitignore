@@ -1,0 +1,23 @@
+# --- secrets: never commit ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- personal data jevme learns (lives in ~/.config/jevme, but never let a copy in) ---
+learned.json
+task_memory.json
+ui_memory.json
+*.log
+
+# --- Python / build ---
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+.venv
+.pytest_cache/
+.DS_Store
