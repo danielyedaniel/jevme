@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Set up / start / stop / log jevme.  Usage: ./run.sh setup|start|stop|status|log
+# Set up / check / start / stop / log jevme.  Usage: ./run.sh setup|doctor|start|stop|status|log
 cd "$(dirname "$0")"
 LOG="${JEVME_LOG_FILE:-$HOME/Library/Logs/jevme/jevme.log}"
 mkdir -p "$(dirname "$LOG")"
@@ -21,9 +21,11 @@ Grant these to the app you launch jevme from (Terminal / iTerm / VS Code), in
 System Settings ▸ Privacy & Security:  Microphone, Speech Recognition, Accessibility,
 Screen Recording (screenshot fallback). macOS prompts for the first two on first run.
 
-Then:  ./run.sh start    (logs: ./run.sh log)
 MSG
+    uv run jevme-doctor
+    echo "Then:  ./run.sh start    (logs: ./run.sh log · re-check anytime: ./run.sh doctor)"
     ;;
+  doctor) uv run jevme-doctor ;;
   start)
     pgrep -f "jevme.main|bin/jevme" >/dev/null && { echo "already running"; exit 0; }
     # Append, never truncate: the log is the usage history. Rotate at 20 MB, keep 5.
@@ -37,5 +39,5 @@ MSG
   stop)   pkill -f "jevme.main|bin/jevme"; echo "stopped" ;;
   status) pgrep -fl "jevme.main|bin/jevme" || echo "not running" ;;
   log)    grep -vE "httpx|HTTP Request" "$LOG" | tail -${2:-40} ;;
-  *) echo "usage: $0 setup|start|stop|status|log"; exit 1 ;;
+  *) echo "usage: $0 setup|doctor|start|stop|status|log"; exit 1 ;;
 esac

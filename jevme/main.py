@@ -45,6 +45,11 @@ class AppDelegate(NSObject):
             log.error("%s", e)
             return
 
+        # Without Accessibility jevme hears you but can't read or click anything, and nothing says why.
+        import ApplicationServices as AS
+        if not AS.AXIsProcessTrusted():
+            log.warning("Accessibility permission missing; run ./run.sh doctor")
+            self.overlay.flashError_("no Accessibility access: run ./run.sh doctor")
         n = L.load_all()
         log.info("loaded %d learned tools", n)
         self.generator = Generator(self.jev)

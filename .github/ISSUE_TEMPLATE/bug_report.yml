@@ -1,0 +1,38 @@
+name: Something didn't work
+description: jevme misheard, did the wrong thing, or did nothing
+labels: [bug]
+body:
+  - type: textarea
+    id: said
+    attributes:
+      label: What you said
+      placeholder: "open chrome and go to youtube and play lofi"
+    validations:
+      required: true
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened (and what you expected)
+    validations:
+      required: true
+  - type: textarea
+    id: log
+    attributes:
+      label: Log around that moment
+      description: >
+        Run `./run.sh log 80` right after it happens and paste the output. It shows what was heard and what
+        was decided, and it's usually enough to fix the problem. It contains the words you spoke and app or
+        window names, so remove anything private.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of ./run.sh doctor
+      render: text
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version and the app you were in
+      placeholder: "macOS 15.3, Discord"

@@ -1,0 +1,14 @@
+name: Idea / something it can't do yet
+description: A command you wish worked, or a feature
+labels: [enhancement]
+body:
+  - type: textarea
+    id: say
+    attributes:
+      label: What you'd like to say, and what should happen
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Which app(s)?

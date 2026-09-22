@@ -1,5 +1,6 @@
 # jevme
 
+[![tests](https://github.com/danielyedaniel/jevme/actions/workflows/tests.yml/badge.svg)](https://github.com/danielyedaniel/jevme/actions/workflows/tests.yml)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
@@ -36,7 +37,7 @@ cheaper the more you use it.
 ```bash
 git clone https://github.com/danielyedaniel/jevme.git
 cd jevme
-./run.sh setup          # installs deps, creates .env from .env.example, checks your keys
+./run.sh setup          # installs deps, creates .env from .env.example, checks keys + permissions
 ```
 
 Open `.env` and paste your keys:
@@ -60,6 +61,9 @@ Grant these to the app you launch jevme from (Terminal, iTerm, VS Code…) in
 | Microphone, Speech Recognition | live transcription (macOS prompts on first run) |
 | Accessibility | reading on-screen controls, clicking, typing, key presses |
 | Screen Recording | the screenshot fallback, when an app exposes no controls |
+
+Check everything at any time with `./run.sh doctor`. It tests each permission and key (it even makes one live
+Jev call) and tells you exactly what to fix.
 
 Prefer jevme to own its permissions instead of your terminal? Build an app bundle:
 `./scripts/make_app.sh && open dist/Jevme.app`.
@@ -278,6 +282,11 @@ jevme/
   evalrun.py     routing eval · replay.py  microphone-free replay harness
 tests/           unit tests (pytest)
 ```
+
+## Contributing
+
+Bug reports with a log snippet are the most useful thing you can send. See [CONTRIBUTING.md](CONTRIBUTING.md)
+for setup, how to reproduce without a mic, and good first contributions.
 
 ## License
 
