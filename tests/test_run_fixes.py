@@ -49,3 +49,9 @@ def test_run_goal_needs_an_action():
 ])
 def test_send_is_asked_for_only_as_a_verb(goal, asked):
     assert (policy.unrequested_commit("Send", goal) is None) is asked
+
+
+@pytest.mark.parametrize("goal", ["I want you to fill in the implementation", "solve this problem",
+                                  "write the solution", "fill this function in", "complete the code"])
+def test_coding_requests_are_allowed_to_compose(goal):
+    assert WANTS_CONTENT.search(goal)

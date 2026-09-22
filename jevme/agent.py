@@ -107,8 +107,9 @@ WEB_SERVICES: list[tuple[re.Pattern, str]] = [
 ]
 # Goals that ask for text to be written (so composing it is wanted), vs. just opening a compose window.
 WANTS_CONTENT = re.compile(
-    r"\b(implement|solve|solution|code|summari[sz]e|explain|translate|rewrite|reply|respond|answer|essay|poem|"
-    r"paragraph|story|about|regarding|asking|thanking|apologi[sz]ing|inviting|describing|fill (it|this|that) (in|out)|"
+    r"\b(implement\w*|solv\w*|solutions?|code|coding|function|program\w*|algorithm\w*|summar\w*|explain\w*|"
+    r"translat\w*|rewrit\w*|repl(y|ies)|respond\w*|answer\w*|essay|poem|paragraph|story|about|regarding|asking|"
+    r"thanking|apologi\w*|inviting|describing|finish\w*|complete|fill\s+(in|out)|fill\s+\w+(\s+\w+)?\s+(in|out)|"
     r"write (a|an|the|me|some|something|up|out))\b", re.I)
 # Goals that need an action taken now; "done" before doing anything is wrong for these ("run the solution"
 # was judged already done because a previous run's results were on screen).
@@ -339,7 +340,11 @@ class Agent:
                 time.sleep(0.6)                      # something is probably still loading
                 snap = ax.snapshot(app_name=self.app)
             sig = (snap.app, tuple((e.role, e.label) for e in snap.elems[:60]))
-            d = self._decide(goal, snap, history)
+            try:
+                d = self._decide(goal, snap, history)
+            except Exception as e:  # noqa: BLE001 — the client already retried; the service is down
+                log.warning("agent: jev failed: %s", str(e).splitlines()[0])
+                return Result(False, "Jev unavailable — try again in a moment", history)
             op = d.get("op", "stuck")
             if op == "open_app" and site and d.get("app") not in BROWSERS:
                 op, d["url"] = "open_url", site          # a web service: never its look-alike native app
@@ -670,7 +675,7 @@ def compose_with_claude(goal: str, content: str) -> str:
     (faster, and Opus reasons well), else the signed-in Claude Code CLI.
     """
     import os
-    coding = bool(re.search(r"\b(solve|implement|code|function|leetcode|bug|fix|program|algorithm)\b", goal, re.I))
+    coding = bool(re.search(r"\b(solv\w*|implement\w*|solutions?|code|coding|function|leetcode|bug|fix|program\w*|algorithm\w*)\b", goal, re.I))
     prompt = (
         f'A Mac voice assistant is carrying out this spoken request: "{goal}".\n'
         f"It will insert your reply into the focused field/editor. Here is the full readable text on "

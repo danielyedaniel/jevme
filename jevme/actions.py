@@ -384,11 +384,22 @@ _UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/537.36 (KHTML, 
        "Chrome/153.0.0.0 Safari/537.36")
 
 
+def clean_media_query(query: str) -> str:
+    """'some Lofi on YouTube for me' → 'Lofi': drop filler the span picker can leave around the title."""
+    q = query.strip().strip(" .?!,")
+    for _ in range(3):
+        q = re.sub(r"\s+(for me|please|for us|real quick|now)$", "", q, flags=re.I)
+        q = re.sub(r"\s*\b(on|in|from)\s+you\s?tube$", "", q, flags=re.I)
+        q = re.sub(r"^(some|a|an|the|me|us)\s+", "", q, flags=re.I)
+        q = q.strip(" .?!,")
+    return q or query
+
+
 def youtube_play(query: str) -> str:
     """Open the first YouTube result for `query` directly (no browser round-trip to find it)."""
     import re as _re
     import httpx
-    query = _re.sub(r"\s*(on|in|from)\s+you\s?tube\s*$", "", query.strip(), flags=_re.I).strip(" .?!,") or query
+    query = clean_media_query(query)
     url = "https://www.youtube.com/results?search_query=" + urllib.parse.quote_plus(query)
     try:
         r = httpx.get(url, headers={"user-agent": _UA, "accept-language": "en-US"}, follow_redirects=True, timeout=6)

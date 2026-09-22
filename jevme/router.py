@@ -415,8 +415,12 @@ class Router:
 
     def _on_jev_error(self, seq: int, err: Exception) -> None:
         self.inflight = False
-        log.warning("jev error: %s", err)
-        self.on_error(f"jev: {err.__class__.__name__}")
+        log.warning("jev error: %s", str(err).splitlines()[0])
+        # One message per outage, not one flash per partial (a 503 burst flashed six errors in two seconds).
+        now = time.monotonic()
+        if now - getattr(self, "_last_jev_err", 0.0) > 10:
+            self.on_error("Jev unavailable — retrying")
+        self._last_jev_err = now
 
     def _on_decision(self, d: Decision, utterance: str) -> None:
         self.inflight = False
@@ -618,7 +622,8 @@ class Router:
         if self.agent is not None:
             res = self.agent.run(clause, progress=progress)
             self.recent_action = res.summary
-            if not res.ok and self.on_failed and not self.agent.cancelled:
+            if (not res.ok and self.on_failed and not self.agent.cancelled
+                    and not res.summary.startswith("Jev unavailable")):   # an outage isn't a task to learn
                 # Failed: offer to learn it by watching the user do it by hand.
                 self.dispatch_main(self.on_failed, (clause, getattr(self.agent, "app0", ""), res.summary))
             else:

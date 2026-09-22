@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -55,9 +56,23 @@ class JevClient:
         )
         self._lock = threading.Lock()
 
-    def ask(self, state: dict, questions: dict) -> tuple[dict[str, Answer], int]:
+    def ask(self, state: dict, questions: dict, retries: int = 2) -> tuple[dict[str, Answer], int]:
+        """One decision. Transient failures (timeouts, 429, 5xx — the log showed a burst of 503s and a
+        read timeout that crashed a whole agent task) are retried with a short backoff."""
         body = {"model": config.JEV_MODEL, "state": state, "questions": questions}
-        r = self._client.post(ENDPOINT, json=body)
+        t0 = time.monotonic()
+        for attempt in range(retries + 1):
+            try:
+                r = self._client.post(ENDPOINT, json=body)
+                if r.status_code == 429 or r.status_code >= 500:
+                    r.raise_for_status()
+                break
+            except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPStatusError) as e:
+                if attempt == retries or (isinstance(e, httpx.HTTPStatusError)
+                                          and e.response.status_code < 500 and e.response.status_code != 429):
+                    raise
+                log.info("jev %s; retrying", e.__class__.__name__)
+                time.sleep(0.3 * (attempt + 1))
         r.raise_for_status()
         data = r.json()
         answers: dict[str, Answer] = {}
@@ -67,7 +82,7 @@ class JevClient:
                                        {k: float(v) for k, v in a.get("probabilities", {}).items()})
             elif a.get("type") == "noul":
                 answers[name] = Answer("noul", noul=float(a.get("noul", 0)))
-        return answers, int(r.elapsed.total_seconds() * 1000)
+        return answers, int((time.monotonic() - t0) * 1000)   # includes any retries
 
     def ask_async(self, seq: int, state: dict, questions: dict,
                   on_done: Callable[[Decision], None], on_error: Callable[[int, Exception], None]) -> None:
