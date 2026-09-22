@@ -271,3 +271,7 @@ jevme/
   evalrun.py     routing eval · replay.py  microphone-free replay harness
 tests/           unit tests (pytest)
 ```
+
+## License
+
+MIT — see [LICENSE](LICENSE).
