@@ -177,6 +177,7 @@ class AppDelegate(NSObject):
             if name and name != self._warmed_front:
                 self._warmed_front = name
                 ax.warm(int(front.processIdentifier()))
+        self._refresh_screen_vocab()
         self.router.tick()
         self.watcher.tick()
         self.speech.maybe_roll_session(pending_empty=(self.router.pending_text() == ""))
@@ -326,6 +327,31 @@ class AppDelegate(NSObject):
         self.agent.cancel()          # stops a running agent task; the agent resets this on its next run
         self.watcher.stop(save=False)  # "stop" also means: don't learn what I'm doing now
         self.overlay.flashError_("stopped")
+
+    @objc.python_method
+    def _refresh_screen_vocab(self):
+        """When the front window changes, teach the recognizer the names on it ("Two Sum", channel names)."""
+        now = time.monotonic()
+        if getattr(self, "_vocab_busy", False) or now - getattr(self, "_vocab_checked", 0.0) < 0.7:
+            return
+        self._vocab_checked = now
+        key = (A.frontmost_app(), A.front_window_title())
+        if key == getattr(self, "_vocab_key", None) or not key[0] or key[0] == "loginwindow":
+            return
+        self._vocab_key = key
+        self._vocab_busy = True
+
+        def work():
+            try:
+                from . import vocab
+                snap = ax.snapshot(budget_s=0.3, app_name=key[0])
+                if vocab.set_screen(vocab.screen_labels_from(snap)):
+                    log.info("speech vocabulary: %d names from %s", len(vocab._screen), key[0])
+            except Exception as e:  # noqa: BLE001
+                log.debug("screen vocab failed: %s", e)
+            finally:
+                self._vocab_busy = False
+        threading.Thread(target=work, daemon=True, name="vocab").start()
 
     @objc.python_method
     def _on_failed(self, goal: str, app0: str, why: str):

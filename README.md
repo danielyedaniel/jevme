@@ -104,11 +104,24 @@ uv run pytest                                              # unit tests (no netw
                                                     ↳ vision fallback     (Haiku, only when the tree is blind)
 ```
 
-### 1. Listening (`jevme/speech.py`)
+### 1. Listening (`jevme/speech.py`, `jevme/vocab.py`)
 
-Apple's `SFSpeechRecognizer` streams partial transcripts every ~150 ms. The recognizer is biased with a
-vocabulary of your installed apps and common sites (`contextualStrings`) — this is what makes "leetcode.com"
-come out as `leetcode.com` rather than "lico.com". Sessions roll over before Apple's ~60 s cap.
+Apple's `SFSpeechRecognizer` streams partial transcripts every ~150 ms. On its own it only knows common
+English, so the names you actually say get turned into ordinary words ("Two Sum" came out as "Tucson" and
+"twosome"). jevme **personalizes the recognizer** with a live vocabulary (`contextualStrings`), most specific
+first:
+
+1. **What's on screen now:** names of the buttons, links, tabs and menu items in the front window, refreshed
+   when the window changes. While LeetCode is open, "Two Sum" is expected.
+2. **Your words:** names from commands that worked before (sites, apps, click targets, searches), learned UI
+   targets, saved recipes and learned tools, stored locally in `~/.config/jevme/vocab.json`.
+3. **General names:** well-known sites, your installed apps, command words.
+
+A recognition request's vocabulary is fixed when it starts, so jevme opens a fresh one with the new
+vocabulary at a quiet moment, never while you're mid-sentence. The same on-screen names also go to Jev,
+so "open two sum" is routed as a click on that link. Only short labels of standard controls are used,
+never text fields, message contents, timestamps or counts. Set `JEVME_SCREEN_VOCAB=0` to turn the screen
+layer off.
 
 ### 2. Deciding (`jevme/router.py`)
 
@@ -119,6 +132,10 @@ Every partial is sent to Jev as **one request** containing several typed questio
 - **args** — for each tool's enum arguments (which app? which site?), asked speculatively in the same call.
 - **text spans** — free-text arguments are *selected* from the utterance ("search for **cats**"), never
   generated. Jev picks the span; no model writes it.
+
+Not every partial needs a call: an obviously unfinished fragment ("go to the", "search for") isn't asked
+about unless you pause on it, and text Jev just answered (a punctuation-only revision) reuses that answer.
+On the usage logs, that removes roughly a third of the calls.
 
 A decision **commits** when it's confident (≥ 0.8) and stable: instant tools fire when the same answer repeats
 on two partials; tools that carry text wait for a short pause or the end of the sentence. Guards learned from
@@ -261,7 +278,7 @@ Models are configurable: `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL` (see `.env.
 ## Configuration
 
 All optional, via `.env` or environment: `JEVME_COMMIT_CONFIDENCE` (0.80), `JEVME_STABLE_PARTIALS` (2),
-`JEVME_TEXT_PAUSE_S` (0.65), `JEVME_LOCALE` (en-US), `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL`, `JEVME_LOG`.
+`JEVME_TEXT_PAUSE_S` (0.65), `JEVME_LOCALE` (en-US), `JEVME_SCREEN_VOCAB` (1), `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL`, `JEVME_LOG`.
 
 ## Project layout
 

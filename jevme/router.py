@@ -93,6 +93,22 @@ def _looks_incomplete(focus: str, idle: float) -> bool:
     return False
 
 
+DANGLING_ASK_AFTER_S = 0.8   # a fragment the user has paused on this long is asked anyway
+ANSWER_TTL_S = 4.0           # reuse Jev's answer for identical text within this window
+
+
+def _dangling(focus: str) -> bool:
+    """Ends mid-phrase ("go to the", "search for", a lone "open"): certainly not a finished command."""
+    f = focus.strip()
+    if _SEND_DRAFT.match(f):
+        return False
+    return bool(_BARE_VERB.match(f) or (_TRAILING.search(f) and not _COMPLETE_TAIL.search(f)))
+
+
+def _norm_text(t: str) -> str:
+    return " ".join(re.sub(r"[^\w' ]+", " ", t.lower()).split())
+
+
 def split_clauses(text: str) -> list[str]:
     """'open chrome and go to amazon and add a rice cooker to my cart' → three commands, in order."""
     parts = [p.strip(" ,.;!?") for p in _SPLIT.split(text)]
@@ -155,6 +171,7 @@ class Router:
         self.prev: Proposal | None = None
         self.stable_count = 0
         self.recent_action: str | None = None
+        self.stats = {"asked": 0, "reused": 0}      # Jev calls made vs answers reused (see _fire_request)
         self.recent_fire: dict[tuple, float] = {}
         self.timer: threading.Timer | None = None
 
@@ -294,6 +311,10 @@ class Router:
             if self.prev is None:  # committed
                 return
         idle = time.monotonic() - self.last_change_t
+        if (getattr(self, "_skipped", None) and self._skipped == self.focus_text() and not self.inflight
+                and idle >= DANGLING_ASK_AFTER_S):
+            self._force_ask = True        # they stopped on "…go to the": ask after all
+            self._schedule(reason="paused")
         if getattr(self, "unsupported_count", 0) >= 1 and idle >= 0.9 and not self.inflight and idle < ABANDON_AFTER_S:
             self._schedule(reason="settle")   # let a pending general/unsupported decision settle
             return
@@ -350,14 +371,40 @@ class Router:
         pending = self.focus_text()
         if not pending or self.inflight:
             return
+        idle = time.monotonic() - self.last_change_t
+        # 1) Obviously unfinished ("open", "go to the", "search for"): the answer is "still talking", so don't
+        #    ask. Half the calls in the usage log were this. If the user stops on it, tick() asks after a pause.
+        forced = getattr(self, "_force_ask", False)
+        self._force_ask = False
+        if not forced and self.pending_confirm is None and idle < DANGLING_ASK_AFTER_S and _dangling(pending):
+            self._skipped = pending
+            self.prev = None
+            self.stable_count = 0
+            return
+        self._skipped = None
+        # 2) Exactly what Jev just answered (a settle tick, a punctuation-only revision): reuse the answer.
+        key = (_norm_text(pending), self.pending_confirm is not None, self.recent_action)
+        cached = getattr(self, "_last_answer", None)
+        if cached and cached[0] == key and time.monotonic() - cached[1] < ANSWER_TTL_S and not getattr(self, "_reusing", False):
+            self.stats["reused"] += 1
+            self._reusing = True
+            try:
+                self._on_decision(cached[2], pending)
+            finally:
+                self._reusing = False
+            return
+        self.stats["asked"] += 1
         self.seq += 1
         seq = self.seq
         self.inflight = True
         self.queued = False
         self.last_request_t = time.monotonic()
         state, questions = self._build(pending)
+        def done(d, key=key):
+            self._last_answer = (key, time.monotonic(), d)
+            self._on_decision(d, pending)
         self.jev.ask_async(seq, state, questions,
-                           on_done=lambda d: self.dispatch_main(self._on_decision, (d, pending)),
+                           on_done=lambda d: self.dispatch_main(done, (d,)),
                            on_error=lambda s, e: self.dispatch_main(self._on_jev_error, (s, e)))
 
     def _build(self, pending: str) -> tuple[dict, dict]:
@@ -368,6 +415,11 @@ class Router:
             "running_apps": A.running_apps(),
             "recent_action": self.recent_action or "none",
         }
+        from . import vocab
+        on_screen = vocab.screen_names()
+        if on_screen:
+            # Names of the controls on screen: "open two sum" is a click on the "Two Sum" link, not an app.
+            state["on_screen"] = on_screen[:40]
         intent_criteria: dict = {t.name: t.criteria() for t in T.TOOLS}
         intent_criteria[T.NOT_YET] = T.NOT_YET_CRITERIA
         intent_criteria[T.CHAT] = T.CHAT_CRITERIA
@@ -481,7 +533,9 @@ class Router:
                 self._maybe_commit(prop, from_tick=False)
 
         # If the transcript moved while we were waiting, ask again right away.
-        if self.queued or (self.focus_text() and self.focus_text() != utterance):
+        # (Compared normalized: a punctuation-only revision is the same text, and re-asking it would just
+        # reuse this answer again — the cache made that an infinite loop.)
+        if self.queued or (self.focus_text() and _norm_text(self.focus_text()) != _norm_text(utterance)):
             self._schedule(reason="stale")
 
     @staticmethod
@@ -583,6 +637,9 @@ class Router:
             out = tool.run(args) or label
             self.recent_action = out
             self.dispatch_main(self.on_action, (out,))
+            # It worked: the names in it (site, app, target, search, title) are words this user says.
+            from . import vocab
+            vocab.learn(*(str(v) for k, v in args.items() if k in ("site", "app", "target", "query", "title")))
         except Exception as e:  # noqa: BLE001
             log.exception("tool %s failed", name)
             self.dispatch_main(self.on_error, (f"{name}: {str(e)[:50]}",))

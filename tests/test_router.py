@@ -305,3 +305,33 @@ def test_real_short_command_after_commit_is_kept():
     r.last_commit_t = _t.monotonic()
     r.on_partial("Close this tab undo", False)
     assert r.pending_text() == "undo"
+
+
+def test_unfinished_fragments_are_not_sent_to_jev():
+    jev = FakeJev({"youtube": ("open_site", 0.95)})
+    h = Harness(jev)
+    for t in ["go", "go to", "go to the"]:
+        h.router.on_partial(t, False)
+    assert jev.calls == []                          # all obviously unfinished
+    h.router.on_partial("go to the youtube", False)
+    assert jev.calls == ["go to the youtube"]
+
+
+def test_fragment_the_user_pauses_on_is_asked_after_all():
+    jev = FakeJev({})
+    h = Harness(jev)
+    h.router.on_partial("search for", False)
+    assert jev.calls == []
+    h.router.last_change_t -= 1.0                   # the user stopped talking
+    h.router.tick()
+    assert jev.calls == ["search for"]
+
+
+def test_identical_text_reuses_the_answer():
+    jev = FakeJev({"open chrome": ("open_app", 0.6)})
+    h = Harness(jev)
+    r = h.router
+    r.on_partial("open chrome", False)
+    r.on_partial("Open Chrome.", False)             # a punctuation-only revision
+    r._fire_request()
+    assert len(jev.calls) == 1 and r.stats["reused"] >= 1

@@ -20,25 +20,10 @@ from . import config
 
 log = logging.getLogger("jevme.speech")
 
-_VOCAB_CACHE: list[str] | None = None
-
-
 def _contextual_vocab() -> list[str]:
-    """Words to bias the recognizer toward: known site names, installed app names, and command verbs."""
-    global _VOCAB_CACHE
-    if _VOCAB_CACHE is not None:
-        return _VOCAB_CACHE
-    from . import actions as A
-    sites = list(A.WELL_KNOWN_SITES) + list(A.SITE_SEARCH)
-    dotted = [f"{s} dot com" for s in ("leetcode", "piazza", "github", "amazon", "youtube")]
-    verbs = ["leetcode", "piazza", "gradescope", "neetcode", "codeforces", "Waterloo", "open", "close",
-             "search", "scroll", "click", "type", "paste", "new tab", "new note", "dark mode"]
-    try:
-        apps = A.installed_apps()
-    except Exception:  # noqa: BLE001
-        apps = []
-    _VOCAB_CACHE = list(dict.fromkeys(sites + dotted + verbs + apps))[:400]
-    return _VOCAB_CACHE
+    """Phrases to bias the recognizer toward: what's on screen, what this user says, then general names."""
+    from . import vocab
+    return vocab.phrases()
 
 
 class SpeechEngine:
@@ -145,6 +130,8 @@ class SpeechEngine:
             pass
         # Bias recognition toward vocabulary the user actually says: site names, app names, command words.
         # This is why "leetcode" was heard as "lico" — the recognizer had no hint it was a real word.
+        from . import vocab
+        self._vocab_version = vocab.version
         try:
             req.setContextualStrings_(_contextual_vocab())
         except Exception:  # noqa: BLE001
@@ -200,6 +187,10 @@ class SpeechEngine:
             return
         age = time.monotonic() - self.session_started
         idle = time.monotonic() - self.last_text_t
-        if (pending_empty and idle >= 1.2 and age >= 4.0 and self.last_text) or (age >= config.SESSION_MAX_S and idle >= 0.5):
+        from . import vocab
+        # The vocabulary changed (new window, new learned names): re-bias at a quiet moment. A request's
+        # contextual strings are fixed when it starts, so this needs a fresh request.
+        rebias = vocab.version != getattr(self, "_vocab_version", vocab.version) and pending_empty and idle >= 1.2 and age >= 2.0
+        if rebias or (pending_empty and idle >= 1.2 and age >= 4.0 and self.last_text) or (age >= config.SESSION_MAX_S and idle >= 0.5):
             log.debug("rolling recognition session (age=%.0fs idle=%.1fs)", age, idle)
             self._new_request()
