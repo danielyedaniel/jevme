@@ -55,3 +55,23 @@ def test_send_is_asked_for_only_as_a_verb(goal, asked):
                                   "write the solution", "fill this function in", "complete the code"])
 def test_coding_requests_are_allowed_to_compose(goal):
     assert WANTS_CONTENT.search(goal)
+
+
+def test_random_pick_is_really_random_and_never_memoized():
+    from jevme import see, ax
+    elems = [ax.Elem(i, "AXLink", f"{i}. Problem number {i} Easy", 100, 100 + 40 * i, 300, 30, None, ["AXPress"])
+             for i in range(1, 9)]
+    snap = ax.Snapshot("Google Chrome", 1, None, elems, 0, 0)
+    picks = {see.ordinal_pick("Select a randomly problem", snap).label for _ in range(40)}
+    assert len(picks) > 3
+    assert see.ordinal_pick("open the second problem", snap).label.startswith("2.")
+    assert see.is_positional("select a random problem")
+
+
+@pytest.mark.parametrize("goal,clears", [
+    ("OK now I'll get rid of the code inside of here", True), ("clear the editor", True), ("empty this field", True),
+    ("delete this email draft", False), ("delete the groceries note", False), ("clear my calendar", False),
+])
+def test_clear_text_only_for_text_goals(goal, clears):
+    from jevme.agent import CLEAR_TEXT
+    assert bool(CLEAR_TEXT.search(goal)) is clears

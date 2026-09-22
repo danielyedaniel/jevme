@@ -119,6 +119,14 @@ NEEDS_ACTION = re.compile(
     r"reload)\b", re.I)
 
 
+# "clear the code", "get rid of the text in here", "empty this field": select-all + delete inside a text
+# element. Only ever applied to a text field/editor (never a list, where select-all + delete would remove
+# every email or file).
+CLEAR_TEXT = re.compile(r"\b(clear|delete|remove|erase|wipe|empty|get rid of)\b.*\b(code|text|editor|field|box|input|"
+                        r"in here|in there|everything in (it|this|here))\b", re.I)
+TEXT_ROLES = ("AXTextArea", "AXTextField", "AXSearchField", "AXComboBox")
+
+
 def web_service(goal: str) -> str | None:
     """The website a goal names ('gmail', 'linkedin', …), as an open_site key; None if it names none."""
     for pat, key in WEB_SERVICES:
@@ -315,6 +323,25 @@ class Agent:
                 time.sleep(0.4)
             else:
                 self.app = target
+        self._positional = False
+        if CLEAR_TEXT.search(goal):
+            done = self._clear_text(progress)
+            if done:
+                history.append(Step("clear", done))
+        # "the second video", "a random problem": resolved by position, deterministically, before reasoning.
+        # (Asked to pick "a random one", the model kept picking the same item and then wandered off.)
+        from . import see
+        if see.ORDINAL_RE.search(goal):
+            snap = ax.snapshot(app_name=self.app)
+            el = see.ordinal_pick(goal, snap)
+            if el is not None:
+                detail = ax.press(el)
+                self._positional = True       # a recipe would replay this exact item: don't memoize
+                history.append(Step("click", detail))
+                log.info("positional pick: %s", el.describe())
+                if progress:
+                    progress(f"step 0: {detail}")
+                time.sleep(0.6)
         last_sig = None
         last_action = None
         best_done, best_step = 0.0, 0
@@ -438,7 +465,7 @@ class Agent:
     def _save_recipe(self, goal: str, verified: bool) -> None:
         # Only memorize a task that genuinely finished (the model clearly saw it done), never a run that
         # merely ran out of ideas. ui_memory applies the further stable-target / volatile-goal filters.
-        if verified and getattr(self, "recipe", None):
+        if verified and getattr(self, "recipe", None) and not getattr(self, "_positional", False):
             ui_memory.task_memory().remember(goal, getattr(self, "app0", ""), self.recipe)
 
     def try_replay(self, goal: str, progress: Callable[[str], None] | None):
@@ -640,6 +667,31 @@ class Agent:
             self._wait_for_page()
             return f"opened {u}"
         return "no-op"
+
+    def _clear_text(self, progress) -> str | None:
+        """Select everything in the focused text element (or the largest editor on screen) and delete it."""
+        import ApplicationServices as AS
+        sys_el = AS.AXUIElementCreateSystemWide()
+        AS.AXUIElementSetMessagingTimeout(sys_el, 0.3)
+        focused = ax._attr(sys_el, "AXFocusedUIElement")
+        role = ax._s(ax._attr(focused, "AXRole")) if focused is not None else ""
+        if role not in TEXT_ROLES or ax._s(ax._attr(focused, "AXSubrole")) == "AXSecureTextField":
+            snap = ax.snapshot(app_name=self.app)
+            fields = [e for e in snap.elems if e.role in TEXT_ROLES]
+            if not fields:
+                return None                     # no editor on screen: let the agent reason instead
+            el = max(fields, key=lambda e: e.w * e.h)
+            ax.focus(el)
+            time.sleep(0.2)
+        A.keystroke("a", "cmd")
+        time.sleep(0.1)
+        A.keystroke("delete")
+        self._record("key", arg="cmd+a")
+        self._record("key", arg="delete")
+        if progress:
+            progress("step 0: cleared the editor")
+        log.info("cleared text (select all + delete)")
+        return "selected all the text and deleted it"
 
     def _ensure_site(self, site: str, history: list, progress) -> None:
         """Be on `site` in the browser before reasoning. Stay if the front tab is already on it."""

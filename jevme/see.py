@@ -36,7 +36,7 @@ PICK_INSTRUCTIONS = (
 
 
 POSITIONAL = _re.compile(
-    r"\b(first|second|third|fourth|fifth|sixth|last|top|next|previous|1st|2nd|3rd|4th|5th)\b|"
+    r"\b(first|second|third|fourth|fifth|sixth|last|top|next|previous|1st|2nd|3rd|4th|5th|random\w*|any)\b|"
     r"\bnumber\s+\w+\b", _re.I)
 
 
@@ -177,15 +177,23 @@ KIND_ROLES = {
     "row": ("AXRow", "AXCell"), "tab": ("AXRadioButton", "AXTab"), "message": ("AXCell", "AXRow"),
     "email": ("AXCell", "AXRow"), "song": ("AXRow", "AXCell", "AXLink"), "photo": ("AXImage", "AXLink"),
     "thumbnail": ("AXImage", "AXLink"),
+    "problem": ("AXLink", "AXRow", "AXCell"), "question": ("AXLink", "AXRow", "AXCell"),
+    "article": ("AXLink",), "product": ("AXLink",), "episode": ("AXLink", "AXRow", "AXCell"),
+    "file": ("AXRow", "AXCell", "AXLink"), "repo": ("AXLink",), "option": ("AXRadioButton", "AXCheckBox", "AXMenuItem"),
 }
+KINDS = "|".join(sorted(KIND_ROLES, key=len, reverse=True))
+# "the second video", "the last email", and "a random problem" (Apple sometimes hears "randomly").
+ORDINAL_RE = _re.compile(
+    rf"\b(first|second|third|fourth|fifth|sixth|last|top|next|1st|2nd|3rd|4th|5th|random\w*|any)\b.*?\b({KINDS})s?\b", _re.I)
 
 
 def ordinal_pick(request: str, snap: ax.Snapshot) -> ax.Elem | None:
     """Resolve 'the second video' / 'first result' by position, without asking Jev."""
-    m = _re.search(r"\b(first|second|third|fourth|fifth|sixth|last|top|next|1st|2nd|3rd|4th|5th)\b.*?\b(video|result|link|item|post|row|tab|message|email|song|photo|thumbnail)\b", request.lower())
+    m = ORDINAL_RE.search(request)
     if not m:
         return None
-    n, kind = ORDINALS[m.group(1)], m.group(2)
+    word, kind = m.group(1).lower(), m.group(2).lower()
+    n = 0 if word.startswith("random") or word == "any" else ORDINALS[word]   # 0 = pick one at random
     roles = KIND_ROLES.get(kind, ("AXLink",))
     cands = [e for e in snap.elems if e.role in roles and e.label and (e.region != "browser")]
     if kind == "video":
@@ -193,6 +201,10 @@ def ordinal_pick(request: str, snap: ax.Snapshot) -> ax.Elem | None:
         nav = {"youtube home", "home", "shorts", "subscriptions", "you", "history", "trending", "view channel", "sign in"}
         cands = [e for e in cands if e.y > 130 and e.label.lower() not in nav
                  and not e.label.lower().startswith(("new content", "@")) and len(e.label) > 10]
+    # A numbered list ("1. Two Sum", "2. Add Two Numbers") is the list the user means; skip nav links.
+    numbered = [e for e in cands if _re.match(r"^\s*\d+[.)]\s", e.label)]
+    if len(numbered) >= 3:
+        cands = numbered
     seen: set = set()
     uniq = []
     for e in sorted(cands, key=lambda e: (round(e.y / 20), e.x)):
@@ -202,6 +214,10 @@ def ordinal_pick(request: str, snap: ax.Snapshot) -> ax.Elem | None:
             uniq.append(e)
     if not uniq:
         return None
+    if n == 0:
+        # A real random choice. A model asked to pick "a random one" picks the same plausible item each time.
+        import random
+        return random.choice(uniq)
     return uniq[-1] if n == -1 else (uniq[n - 1] if n <= len(uniq) else None)
 
 
