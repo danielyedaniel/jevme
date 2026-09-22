@@ -1,3 +1,8 @@
+
+
+https://github.com/user-attachments/assets/e458d454-8149-4679-891e-3f07fe927f6b
+
+
 # jevme
 
 **Talk to your Mac and it does it — in any app, while you're still talking.**
