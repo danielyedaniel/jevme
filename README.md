@@ -1,9 +1,11 @@
+# jevme
 
+[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![macOS 14+](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB?logo=python&logoColor=white)
+[![GitHub stars](https://img.shields.io/github/stars/danielyedaniel/jevme?style=social)](https://github.com/danielyedaniel/jevme/stargazers)
 
 https://github.com/user-attachments/assets/e458d454-8149-4679-891e-3f07fe927f6b
-
-
-# jevme
 
 **Talk to your Mac and it does it — in any app, while you're still talking.**
 
