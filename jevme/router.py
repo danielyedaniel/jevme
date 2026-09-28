@@ -139,15 +139,17 @@ class Router:
                  on_general: Callable[[str], None] | None = None,
                  on_cancel: Callable[[], None] | None = None,
                  on_plan: Callable[[list[str]], None] | None = None,
-                 on_commit: Callable[[str, dict, str], None] | None = None,
-                 on_stream: Callable[[str], None] | None = None) -> None:
+                 on_commit: Callable[[str, dict, str, str], None] | None = None,
+                 on_stream: Callable[[str], None] | None = None,
+                 on_completed: Callable[[str, str, dict], None] | None = None) -> None:
         self.jev = jev
         self.on_learn = on_learn
         self.on_general = on_general
         self.on_cancel = on_cancel
         self.on_plan = on_plan
-        self.on_commit = on_commit        # (tool_name, args, label): main enqueues; harness records
+        self.on_commit = on_commit        # (tool_name, args, label, spoken): main enqueues; harness records
         self.on_stream = on_stream        # (clause): a completed leading clause, fired mid-sentence
+        self.on_completed = on_completed  # successful, safe top-level work for workflow mining
         self.agent = None                 # set by main: executes general clauses
         self.learn_now: Callable[[str, Callable[[str], None]], None] | None = None   # set by main: sync codegen
         self.on_failed: Callable[[str, str, str], None] | None = None   # (goal, app0, why): main watches a demo
@@ -621,18 +623,24 @@ class Router:
 
     # ---------- execution primitives (called on main's task-queue worker) ----------
 
-    def run_tool(self, name: str, args: dict, label: str, progress: Callable[[str], None]) -> None:
-        tool = T.BY_NAME[name]
+    def run_tool(self, name: str, args: dict, label: str, progress: Callable[[str], None], *,
+                 spoken: str = "", record: bool = True) -> bool:
+        tool = T.BY_NAME.get(name)
+        if tool is None:
+            self.dispatch_main(self.on_error, (f"tool {name} is no longer available",))
+            return False
         spec = getattr(tool, "learned", None)
         if spec is not None and spec.risky:
             # A generated tool that deletes/sends/pays/changes settings asks for a spoken yes EVERY time it
             # runs, not just the first time it was written.
-            self.dispatch_main(self.ask_confirmation, (label, lambda: self._run_tool_now(tool, name, args, label)))
-            return
+            self.dispatch_main(self.ask_confirmation,
+                               (label, lambda: self._run_tool_now(tool, name, args, label, record=False)))
+            return False
         progress(label)
-        self._run_tool_now(tool, name, args, label)
+        return self._run_tool_now(tool, name, args, label, spoken=spoken, record=record)
 
-    def _run_tool_now(self, tool: T.Tool, name: str, args: dict, label: str) -> None:
+    def _run_tool_now(self, tool: T.Tool, name: str, args: dict, label: str, *,
+                      spoken: str = "", record: bool = True) -> bool:
         try:
             out = tool.run(args) or label
             self.recent_action = out
@@ -640,9 +648,14 @@ class Router:
             # It worked: the names in it (site, app, target, search, title) are words this user says.
             from . import vocab
             vocab.learn(*(str(v) for k, v in args.items() if k in ("site", "app", "target", "query", "title")))
+            if record and self.on_completed:
+                # Output can contain page text or other private data; mining gets only the invocation.
+                self.on_completed("tool", spoken or label, {"tool_name": name, "args": args})
+            return True
         except Exception as e:  # noqa: BLE001
             log.exception("tool %s failed", name)
             self.dispatch_main(self.on_error, (f"{name}: {str(e)[:50]}",))
+            return False
 
     def execute_clause(self, clause: str, progress: Callable[[str], None]) -> None:
         """Run one spoken clause through the tier pipeline: shortcut → agent → learn (→ nothing)."""
@@ -666,7 +679,7 @@ class Router:
             tool = T.BY_NAME[name]
             args, ok = self._extract(tool, answers)
             if ok:
-                self.run_tool(name, args, self._tool_label(tool, args), progress)
+                self.run_tool(name, args, self._tool_label(tool, args), progress, spoken=clause)
                 return
         # Tier 3 — nothing an app window can do: write a tool.
         if name == T.UNSUPPORTED and (self.learn_now or self.on_learn):
@@ -685,6 +698,10 @@ class Router:
                 self.dispatch_main(self.on_failed, (clause, getattr(self.agent, "app0", ""), res.summary))
             else:
                 self.dispatch_main(self.on_action if res.ok else self.on_error, (res.summary,))
+            if res.ok and res.recipe and self.on_completed:
+                from dataclasses import asdict
+                self.on_completed("recipe", clause, {"goal": res.recipe_goal or clause, "app0": res.app0,
+                                                       "steps": [asdict(s) for s in res.recipe]})
 
     def is_settle_tool(self, name: str) -> bool:
         return name in ("open_app", "open_site", "youtube_play", "site_search", "web_search", "new_tab", "open_folder")
@@ -772,10 +789,11 @@ class Router:
         self.on_preview(None)
         log.info("COMMIT %s %s", p.tool, p.args)
         if self.on_commit:
-            self.on_commit(p.tool, p.args, self._label(p))   # main enqueues in order; harness records
+            self.on_commit(p.tool, p.args, self._label(p), focus)   # main enqueues in order; harness records
         else:
-            threading.Thread(target=lambda: self.run_tool(p.tool, p.args, self._label(p), lambda s: None),
-                             daemon=True).start()
+            threading.Thread(target=lambda: self.run_tool(p.tool, p.args, self._label(p), lambda s: None,
+                                                          spoken=focus),
+                              daemon=True).start()
 
     # ---------- learning ----------
 

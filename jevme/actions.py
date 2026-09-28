@@ -237,15 +237,16 @@ KEY_CODES = {"enter": 36, "return": 36, "escape": 53, "tab": 48, "space": 49, "d
              "home": 115, "end": 119}
 
 
-def keystroke(key: str, *mods: str) -> None:
+def keystroke(key: str, *mods: str) -> bool:
     if not _key_guard():
-        return
+        return False
     using = ", ".join(MODS[m] for m in mods)
     using_clause = f" using {{{using}}}" if using else ""
     if key in KEY_CODES:
         osascript(f'tell application "System Events" to key code {KEY_CODES[key]}{using_clause}')
     else:
         osascript(f'tell application "System Events" to keystroke "{esc(key)}"{using_clause}')
+    return True
 
 
 def type_text(text: str) -> None:
@@ -278,7 +279,8 @@ def click_menu(app: str, menu: str, item: str) -> None:
 # ---------- urls ----------
 
 def open_url(url: str) -> None:
-    NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(url))
+    if not NSWorkspace.sharedWorkspace().openURL_(NSURL.URLWithString_(url)):
+        raise RuntimeError("could not open URL")
 
 
 def web_search(query: str) -> str:
@@ -417,7 +419,7 @@ def youtube_play(query: str) -> str:
 
 def screenshot() -> str:
     path = str(Path.home() / "Desktop" / f"Screenshot {datetime.now():%Y-%m-%d at %H.%M.%S}.png")
-    subprocess.run(["screencapture", "-x", path], check=False)
+    subprocess.run(["screencapture", "-x", path], check=True)
     return path
 
 
@@ -478,5 +480,5 @@ def open_folder(which: str) -> str:
     home = Path.home()
     path = {"desktop": home / "Desktop", "downloads": home / "Downloads", "documents": home / "Documents",
             "home": home, "applications": Path("/Applications"), "pictures": home / "Pictures"}[which]
-    subprocess.Popen(["open", str(path)])
+    subprocess.run(["open", str(path)], check=True)
     return str(path)

@@ -195,6 +195,9 @@ class Result:
     ok: bool
     summary: str
     steps: list[Step] = field(default_factory=list)
+    recipe: list[ui_memory.RecipeStep] | None = None
+    recipe_goal: str = ""
+    app0: str = ""
 
 
 class Agent:
@@ -402,11 +405,11 @@ class Agent:
             # "Verified" completion = the model explicitly chose done, or is very confident it's finished
             # after real actions. Only these teach a recipe; a loose 0.7 after one step does not.
             if op == "done" and history:
-                self._save_recipe(goal, verified=d.get("done", 0) >= 0.8)
-                return Result(True, f"Done: {goal}", history)
+                recipe = self._save_recipe(goal, verified=d.get("done", 0) >= 0.8)
+                return Result(True, f"Done: {goal}", history, recipe, goal, self.app0)
             if d.get("done", 0) >= 0.9 and history:
-                self._save_recipe(goal, verified=True)
-                return Result(True, f"Done: {goal}", history)
+                recipe = self._save_recipe(goal, verified=True)
+                return Result(True, f"Done: {goal}", history, recipe, goal, self.app0)
             if d.get("done", 0) >= 0.7 and history:
                 return Result(True, f"Done: {goal}", history)   # done, but not confident enough to memorize
 
@@ -462,11 +465,13 @@ class Agent:
         self.recipe.append(ui_memory.RecipeStep(
             op=op, role=el.role if el else "", label=el.label if el else "", arg=arg, text_from_goal=text_from_goal))
 
-    def _save_recipe(self, goal: str, verified: bool) -> None:
+    def _save_recipe(self, goal: str, verified: bool) -> list[ui_memory.RecipeStep] | None:
         # Only memorize a task that genuinely finished (the model clearly saw it done), never a run that
         # merely ran out of ideas. ui_memory applies the further stable-target / volatile-goal filters.
         if verified and getattr(self, "recipe", None) and not getattr(self, "_positional", False):
-            ui_memory.task_memory().remember(goal, getattr(self, "app0", ""), self.recipe)
+            if ui_memory.task_memory().remember(goal, getattr(self, "app0", ""), self.recipe):
+                return list(self.recipe)
+        return None
 
     def try_replay(self, goal: str, progress: Callable[[str], None] | None):
         """If this goal (or one meaning the same) was done before, replay the recorded steps by resolving
@@ -498,7 +503,26 @@ class Agent:
                 log.info("replay diverged at step %d (%s); reasoning instead", i + 1, step.op)
                 return self.run(goal, progress=progress, allow_replay=False)
             time.sleep(0.3 if step.op in ("open_app", "open_url") else 0.15)
-        return Result(True, f"Done: {goal}")
+        return Result(True, f"Done: {goal}", recipe=list(recipe.steps), recipe_goal=recipe.goal, app0=recipe.app0)
+
+    def replay_steps(self, goal: str, recipe_goal: str, steps: list[ui_memory.RecipeStep],
+                     progress: Callable[[str], None] | None = None) -> bool:
+        """Replay a specifically saved recipe without semantic matching or reasoning fallback."""
+        self.app = None
+        for step in steps:
+            if self.cancelled or not self._replay_step(step, goal, progress, recipe_goal):
+                return False
+            time.sleep(0.3 if step.op in ("open_app", "open_url") else 0.15)
+        return True
+
+    def replay_recipe_key(self, key: str, progress: Callable[[str], None] | None = None) -> bool:
+        """Resolve an opaque workflow reference and revalidate its recipe just before replay."""
+        from .workflows import eligible_recipe, recipe_key
+        recipe = next((candidate for candidate in ui_memory.task_memory().all()
+                       if recipe_key(candidate.goal, candidate.app0, candidate.steps) == key), None)
+        if recipe is None or not eligible_recipe(recipe.goal, recipe.steps):
+            return False
+        return self.replay_steps(recipe.goal, recipe.goal, list(recipe.steps), progress)
 
     @staticmethod
     def _replay_text(step: ui_memory.RecipeStep, goal: str, recipe_goal: str) -> str | None:
@@ -517,7 +541,7 @@ class Agent:
             progress(f"↺ {step.op} {step.label or step.arg}")
         if step.op == "open_app":
             self.app = A.open_app(step.arg) or None
-            return True
+            return bool(self.app)
         if step.op == "open_url":
             A.open_site(step.arg)
             self._wait_for_page()

@@ -73,3 +73,23 @@ def unrequested_commit(label: str, request: str) -> str | None:
         if m and not asked.search(request or ""):
             return m.group(0).lower()
     return None
+
+
+def consequential_action(*parts: str) -> str | None:
+    """Return the consequential operation named by structured workflow data, if any.
+
+    Unlike ``unrequested_commit``, workflow learning has no safe way to infer consent from
+    a future invocation name. Anything that would commit, delete, send, pay, or end a
+    session is therefore ineligible even when the original request explicitly asked for it.
+    """
+    text = " ".join(str(part or "") for part in parts)
+    for pattern, why in NEEDS_CONFIRM:
+        if pattern.search(text):
+            return why
+    for control, _ in _COMMIT_CONTROLS:
+        match = control.search(text)
+        if match:
+            return match.group(0).lower()
+    if re.search(r"\b(enter|return)\b", text, re.I):
+        return "enter/return"
+    return None

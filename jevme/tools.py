@@ -53,6 +53,13 @@ def _no_app(name: str) -> str:
     raise RuntimeError(f"no app called {name}")
 
 
+def _keystroke(label: str, key: str, *mods: str) -> str:
+    """Make suppression observable to tools without changing agent/replay key behavior."""
+    if not A.keystroke(key, *mods):
+        raise RuntimeError("keystroke suppressed by rate guard")
+    return label
+
+
 def _see():
     from . import see
     return see
@@ -160,36 +167,36 @@ TOOLS: list[Tool] = [
     Tool("media_previous", "Go back to the previous track.", ["previous song", "go back a track"],
          run=lambda a: f"{A.media('previous')} previous"),
     Tool("new_tab", "Open a new empty tab in the front browser.", ["new tab", "open another tab"],
-         run=lambda a: "New tab" if not A.keystroke("t", "cmd") else "",
+         run=lambda a: _keystroke("New tab", "t", "cmd"),
          not_for="Opening a specific site (open_site), searching (web_search), or switching to an EXISTING "
                  "tab by position or name like 'the second tab' (that is a click, not a new tab)."),
     Tool("close_tab", "Close the current browser tab or window.", ["close this tab", "close that"],
-         run=lambda a: "Closed tab" if not A.keystroke("w", "cmd") else ""),
+         run=lambda a: _keystroke("Closed tab", "w", "cmd")),
     Tool("reload_page", "Reload the current page.", ["refresh", "reload the page"],
-         run=lambda a: "Reloaded" if not A.keystroke("r", "cmd") else ""),
+         run=lambda a: _keystroke("Reloaded", "r", "cmd")),
     Tool("go_back", "Go back to the previous page in the browser.", ["go back", "back a page"],
-         run=lambda a: "Back" if not A.keystroke("[", "cmd") else "",
+         run=lambda a: _keystroke("Back", "[", "cmd"),
          not_for="Switching back to an application (open_app)."),
     Tool("scroll", "Scroll the front window up or down.", ["scroll down", "scroll up a bit"],
          run=lambda a: f"Scrolled {a['direction']}" if not A.scroll(a["direction"]) else "",
          enum_args=[EnumArg("direction", "Which direction?", {"down": None, "up": None})]),
     Tool("press_key", "Press a single key: enter, escape, tab, space, delete.",
          ["hit enter", "press escape", "submit that"],
-         run=lambda a: f"Pressed {a['key']}" if not A.keystroke(a["key"]) else "",
+         run=lambda a: _keystroke(f"Pressed {a['key']}", a["key"]),
          enum_args=[EnumArg("key", "Which key?", {"enter": "return/submit", "escape": None, "tab": None,
                                                   "space": None, "delete": "backspace"})]),
     Tool("select_all", "Select all in the focused app.", ["select everything", "select all"],
-         run=lambda a: "Selected all" if not A.keystroke("a", "cmd") else ""),
-    Tool("copy", "Copy the selection.", ["copy that"], run=lambda a: "Copied" if not A.keystroke("c", "cmd") else ""),
-    Tool("paste", "Paste the clipboard.", ["paste it here"], run=lambda a: "Pasted" if not A.keystroke("v", "cmd") else ""),
-    Tool("undo", "Undo the last edit.", ["undo that"], run=lambda a: "Undid" if not A.keystroke("z", "cmd") else ""),
-    Tool("save", "Save the current document.", ["save this"], run=lambda a: "Saved" if not A.keystroke("s", "cmd") else ""),
+         run=lambda a: _keystroke("Selected all", "a", "cmd")),
+    Tool("copy", "Copy the selection.", ["copy that"], run=lambda a: _keystroke("Copied", "c", "cmd")),
+    Tool("paste", "Paste the clipboard.", ["paste it here"], run=lambda a: _keystroke("Pasted", "v", "cmd")),
+    Tool("undo", "Undo the last edit.", ["undo that"], run=lambda a: _keystroke("Undid", "z", "cmd")),
+    Tool("save", "Save the current document.", ["save this"], run=lambda a: _keystroke("Saved", "s", "cmd")),
     Tool("minimize_window", "Minimize the front window.", ["minimize this"],
-         run=lambda a: "Minimized" if not A.keystroke("m", "cmd") else ""),
+         run=lambda a: _keystroke("Minimized", "m", "cmd")),
     Tool("fullscreen_window", "Toggle full screen for the front window.", ["make it full screen", "full screen chrome"],
-         run=lambda a: "Full screen" if not A.keystroke("f", "ctrl", "cmd") else ""),
+         run=lambda a: _keystroke("Full screen", "f", "ctrl", "cmd")),
     Tool("hide_others", "Hide every app except the one in front.", ["hide everything else", "clear the desktop"],
-         run=lambda a: "Hid others" if not A.keystroke("h", "cmd", "alt") else ""),
+         run=lambda a: _keystroke("Hid others", "h", "cmd", "alt")),
     Tool("toggle_dark_mode", "Toggle macOS dark mode.", ["turn on dark mode", "switch to light mode"],
          run=lambda a: "Toggled dark mode" if not A.toggle_dark_mode() else ""),
     Tool("open_folder", "Open a common folder in Finder.", ["open my downloads", "show the desktop folder"],
@@ -206,7 +213,7 @@ TOOLS: list[Tool] = [
          ["what's on my screen", "what does this say", "read this page", "what am I looking at"],
          run=lambda a: _see().read()),
     Tool("lock_screen", "Lock the screen.", ["lock my screen", "lock the mac"],
-         run=lambda a: "Locked" if not A.keystroke("q", "ctrl", "cmd") else ""),
+         run=lambda a: _keystroke("Locked", "q", "ctrl", "cmd")),
 ]
 
 BY_NAME = {t.name: t for t in TOOLS}

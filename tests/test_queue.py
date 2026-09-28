@@ -15,7 +15,7 @@ class FakeRouter:
         self.ran: list[str] = []
         self.delay = delay
 
-    def run_tool(self, name, args, label, prog):
+    def run_tool(self, name, args, label, prog, **kwargs):
         time.sleep(self.delay)
         self.ran.append(name)
 
@@ -94,3 +94,55 @@ def test_no_stranded_unit_under_rapid_enqueue(app):
             time.sleep(0.001)
     _wait(app)
     assert len(app.router.ran) == 200
+
+
+def test_workflow_uses_admitted_queue_epoch_so_concurrent_stop_is_not_lost(app, tmp_path):
+    from jevme.workflows import Workflow, WorkflowStore, tool_unit
+
+    slack, jira = tool_unit("open_app", {"app": "Slack"}), tool_unit("open_app", {"app": "Jira"})
+    assert slack is not None and jira is not None
+    app.workflow_store = WorkflowStore(tmp_path / "workflows.json")
+    app.workflow_store.workflows.append(Workflow("morning", "morning", (slack, jira)))
+    app.agent.cancelled = True
+    app._active_epoch = app.cancel_epoch
+    app.cancel_epoch += 1  # stop lands after _drain admitted the run_workflow queue unit
+    with pytest.raises(RuntimeError, match="workflow cancelled"):
+        app._run_workflow("morning")
+    assert app.router.ran == []
+
+
+def test_workflow_candidate_mining_runs_off_tick_thread(app, monkeypatch):
+    from jevme import config
+
+    entered, release, threads = threading.Event(), threading.Event(), []
+
+    class Store:
+        @staticmethod
+        def needs_finalization():
+            return True
+
+        def finalize_candidate(self):
+            threads.append(threading.get_ident())
+            entered.set()
+            release.wait(timeout=2)
+            return None
+
+    monkeypatch.setattr(config, "WORKFLOW_LEARNING", True)
+    app.workflow_store = Store()
+    caller = threading.get_ident()
+    app._check_workflow_candidate()
+    assert entered.wait(timeout=2)
+    assert threads == [threads[0]] and threads[0] != caller
+    assert app._workflow_check_busy
+    release.set()
+    end = time.monotonic() + 2
+    while app._workflow_check_busy and time.monotonic() < end:
+        time.sleep(0.01)
+    assert not app._workflow_check_busy
+
+
+def test_termination_persists_unfinalized_workflow_history(app):
+    saved = []
+    app.workflow_store = type("Store", (), {"save": lambda self: saved.append(True)})()
+    app.applicationWillTerminate_(None)
+    assert saved == [True]

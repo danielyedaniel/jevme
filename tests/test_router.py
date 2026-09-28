@@ -169,6 +169,102 @@ def test_risky_learned_tool_confirms_every_run():
         T.BY_NAME.pop(tool.name, None)
 
 
+def test_only_successful_tools_emit_completed_events():
+    h = Harness(FakeJev({}))
+    completed = []
+    h.router.on_completed = lambda kind, spoken, data: completed.append((kind, spoken, data))
+    tool = T.BY_NAME["media_next"]
+    old_run = tool.run
+    try:
+        tool.run = lambda args: "Skipped"
+        assert h.router.run_tool("media_next", {}, "next", lambda label: None, spoken="skip this")
+        assert completed == [("tool", "skip this", {"tool_name": "media_next", "args": {}})]
+
+        def fail(args):
+            raise RuntimeError("no player")
+        tool.run = fail
+        assert not h.router.run_tool("media_next", {}, "next", lambda label: None, spoken="skip again")
+        assert len(completed) == 1
+    finally:
+        tool.run = old_run
+
+
+def test_suppressed_keystroke_tool_reports_failure(monkeypatch):
+    h = Harness(FakeJev({}))
+    completed = []
+    h.router.on_completed = lambda *event: completed.append(event)
+    monkeypatch.setattr(T.A, "keystroke", lambda *args: False)
+    tool, old_run = T.BY_NAME["new_tab"], T.BY_NAME["new_tab"].run
+    try:
+        # Harness stubs every tool callback; restore this tool's real execution boundary for the test.
+        tool.run = lambda args: T._keystroke("New tab", "t", "cmd")
+        assert not h.router.run_tool("new_tab", {}, "new tab", lambda label: None)
+        assert completed == []
+    finally:
+        tool.run = old_run
+
+
+def test_workflow_registration_uses_real_tool_catalog(tmp_path):
+    from jevme.workflows import Workflow, WorkflowStore, register_tools, tool_unit
+
+    slack = tool_unit("open_app", {"app": "Slack"})
+    jira = tool_unit("open_app", {"app": "Jira"})
+    assert slack is not None and jira is not None
+    store = WorkflowStore(tmp_path / "workflows.json")
+    store.workflows.append(Workflow("morning", "Morning Routine", (slack, jira)))
+    original_tools, original_by_name = list(T.TOOLS), dict(T.BY_NAME)
+    learned, ran = [], []
+
+    class FakeVocab:
+        @staticmethod
+        def learn(*names):
+            learned.extend(names)
+
+    try:
+        register_tools(store, lambda name: ran.append(name) or "done",
+                       tools_module=T, vocab_module=FakeVocab)
+        save_tool, run_tool = T.BY_NAME["save_workflow"], T.BY_NAME["run_workflow"]
+        assert isinstance(save_tool, T.Tool) and isinstance(run_tool, T.Tool)
+        assert save_tool.text_arg is not None and save_tool.text_arg.name == "name"
+        assert run_tool.enum_args[0].options() == {"Morning Routine": None}
+        assert run_tool.run({"workflow": "Morning Routine"}) == "done"
+        assert learned == ["Morning Routine"] and ran == ["Morning Routine"]
+    finally:
+        T.TOOLS[:] = original_tools
+        T.BY_NAME.clear()
+        T.BY_NAME.update(original_by_name)
+
+
+def test_workflow_save_persistence_error_is_reported_as_tool_failure(tmp_path, monkeypatch):
+    from jevme.workflows import WorkflowCandidate, WorkflowStore, register_tools, tool_unit
+
+    slack = tool_unit("open_app", {"app": "Slack"})
+    jira = tool_unit("open_app", {"app": "Jira"})
+    assert slack is not None and jira is not None
+    store = WorkflowStore(tmp_path / "workflows.json")
+    store.pending = WorkflowCandidate((slack, jira), 3)
+    monkeypatch.setattr(store, "save", lambda: False)
+    harness = Harness(FakeJev({}))
+    original_tools, original_by_name = list(T.TOOLS), dict(T.BY_NAME)
+
+    class FakeVocab:
+        @staticmethod
+        def learn(*names):
+            pass
+
+    try:
+        register_tools(store, lambda name: "done", tools_module=T, vocab_module=FakeVocab)
+        assert not harness.router.run_tool(
+            "save_workflow", {"name": "morning"}, "save workflow", lambda label: None)
+        assert store.pending is not None
+        assert store.by_name("morning") is None
+        assert harness.events[-1] == ("error", "save_workflow: Couldn't save workflow")
+    finally:
+        T.TOOLS[:] = original_tools
+        T.BY_NAME.clear()
+        T.BY_NAME.update(original_by_name)
+
+
 # ---------- cursor survives STT revisions (logged: "o Code", "s tab close this") ----------
 
 def _router():

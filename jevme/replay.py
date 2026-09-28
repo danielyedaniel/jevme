@@ -65,7 +65,8 @@ def main() -> None:
                on_error=lambda e: print("    ✗", e), dispatch_main=loop.dispatch,
                on_general=lambda g: (print(f"    🤖 agent: {g}"), run_clause(g)),
                on_plan=lambda cs: [run_clause(c) for c in cs],
-               on_commit=lambda name, args, label: (r.run_tool(name, args, label, lambda s: None)),
+               on_commit=lambda name, args, label, spoken="": (
+                   r.run_tool(name, args, label, lambda s: None, spoken=spoken)),
                on_stream=lambda c: (print(f"    ▶ stream: {c}"), run_clause(c)),
                on_learn=lambda u: (fired.append(f"[learn] {u}"), print(f"    🛠 learn: {u}")))
 

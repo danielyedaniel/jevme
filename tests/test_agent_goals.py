@@ -5,6 +5,7 @@ import pytest
 
 from jevme import actions as A
 from jevme import agent as G
+from jevme import ui_memory, workflows
 
 
 @pytest.fixture(autouse=True)
@@ -67,3 +68,30 @@ def test_replay_types_the_new_message_not_the_old_one():
     assert Agent._replay_text(step, "text sam", old) is None          # unknown text: reason instead
     fixed = RecipeStep("type", "AXTextField", "Search", "general", text_from_goal=False)
     assert Agent._replay_text(fixed, "go to general in discord", "open the general channel") == "general"
+
+
+def test_workflow_recipe_is_revalidated_immediately_before_replay(monkeypatch):
+    steps = [ui_memory.RecipeStep("open_app", arg="Notes"),
+             ui_memory.RecipeStep("click", role="AXButton", label="New Note")]
+    recipe = ui_memory.Recipe("open notes and create a note", "Finder", steps)
+    key = workflows.recipe_key(recipe.goal, recipe.app0, recipe.steps)
+    monkeypatch.setattr(ui_memory, "task_memory", lambda: type("Memory", (), {"all": lambda self: [recipe]})())
+    monkeypatch.setattr(workflows, "eligible_recipe", lambda goal, current_steps: False)
+    agent = G.Agent.__new__(G.Agent)
+    agent.replay_steps = lambda *args, **kwargs: pytest.fail("ineligible recipe was replayed")
+    assert not agent.replay_recipe_key(key)
+
+
+def test_workflow_recipe_reference_resolves_after_steps_are_refreshed(monkeypatch):
+    original = [ui_memory.RecipeStep("open_app", arg="Notes"),
+                ui_memory.RecipeStep("click", role="AXButton", label="New Note")]
+    recipe = ui_memory.Recipe("open notes and create a note", "Finder", original)
+    key = workflows.recipe_key(recipe.goal, recipe.app0, recipe.steps)
+    recipe.steps = [ui_memory.RecipeStep("open_app", arg="Notes"),
+                    ui_memory.RecipeStep("menu", label="New Note", arg="File > New Note")]
+    monkeypatch.setattr(ui_memory, "task_memory", lambda: type("Memory", (), {"all": lambda self: [recipe]})())
+    replayed = []
+    agent = G.Agent.__new__(G.Agent)
+    agent.replay_steps = lambda *args, **kwargs: replayed.append(args[2]) or True
+    assert agent.replay_recipe_key(key)
+    assert replayed == [recipe.steps]

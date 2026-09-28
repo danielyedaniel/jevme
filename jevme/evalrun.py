@@ -104,7 +104,7 @@ def run(filter_text: str | None = None, words_per_sec: float = 6.0) -> None:
                    on_action=lambda label: got.append(label.split(" ")[0]),
                    on_error=lambda e: got.append(f"error:{e}"), dispatch_main=loop.dispatch,
                    on_general=lambda g: got.append("agent"), on_plan=lambda cs: got.append("plan"),
-                   on_commit=lambda name, args, label: got.append(name),
+                   on_commit=lambda name, args, label, spoken="": got.append(name),
                    on_stream=None,  # streaming is a live behavior; tested separately
                    on_learn=lambda u: got.append("learn"))
         words = text.split()

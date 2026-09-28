@@ -196,12 +196,13 @@ a new message" opens an empty one — it never invents words you didn't ask for.
 ## Memoization: the slow path teaches the fast path
 
 The core design rule: **Jev classifies, models reason, and every reasoning result is stored as a case Jev can
-classify next time.** There are four memories, all local in `~/.config/jevme/`:
+classify next time.** There are five memories, all local in `~/.config/jevme/`:
 
 | Memory | Learned from | Replayed by | Cost the 2nd time |
 |---|---|---|---|
 | **UI cases** `ui_memory.json` | a Jev pick over the whole tree, or a Haiku screenshot click | one Jev Choice matching your words to known intents in this app, then a live-tree lookup | ~130 ms instead of ~1.5–6 s |
 | **Task recipes** `task_memory.json` | an agent run that *verifiably* finished | one Jev Choice matching the goal to past goals; each step resolved from the live tree | no per-step reasoning |
+| **Workflows** `workflows.json` | the same safe sequence of successful top-level tasks recurring three times | a named Jev tool which runs each tool or live-tree recipe in order | no new reasoning |
 | **Learned tools** `learned.json` | Opus writing a script | Jev routes to it like any built-in tool | 0 model calls |
 | **Demonstrations** → `task_memory.json` | you doing it by hand after a command failed | same as recipes | no model ever involved |
 
@@ -223,6 +224,17 @@ A memory that replays the wrong thing is worse than none, so everything is filte
 Recipes generalize. Text you typed is stored as a slot tied to the words of the goal, so a recipe learned for
 "search discord for **cats**" replays "search discord for **dogs**" by reading the new value off the new goal.
 The same applies to targets you named: "open my **cs 343** notes" → clicks the **CS 341** row when you say it.
+
+### Repeated routines → saved workflows
+
+When two or more safe completed tasks recur in the same order, Jevme can suggest saving the routine after
+three occurrences. Say **"save workflow as morning standup"** to name it; later, **"run morning standup"**
+runs its tools and live-tree recipes in order. Detection uses only successful replayable descriptors, is
+bounded into short activity episodes, and survives restarts in `~/.config/jevme/workflows.json`.
+
+Workflow learning never watches global input. It excludes typed content, volatile messaging, consequential
+actions, failed tasks, and workflow replays themselves. Mining is off by default; set
+`JEVME_WORKFLOW_LEARNING=1` to opt in. Disabling it does not disable workflows you already saved.
 
 ### Learning from demonstration (`jevme/watch.py`)
 
@@ -278,7 +290,8 @@ Models are configurable: `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL` (see `.env.
 ## Configuration
 
 All optional, via `.env` or environment: `JEVME_COMMIT_CONFIDENCE` (0.80), `JEVME_STABLE_PARTIALS` (2),
-`JEVME_TEXT_PAUSE_S` (0.65), `JEVME_LOCALE` (en-US), `JEVME_SCREEN_VOCAB` (1), `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL`, `JEVME_LOG`.
+`JEVME_TEXT_PAUSE_S` (0.65), `JEVME_LOCALE` (en-US), `JEVME_SCREEN_VOCAB` (1),
+`JEVME_WORKFLOW_LEARNING` (0), `JEVME_VISION_MODEL`, `JEVME_CODEGEN_MODEL`, `JEVME_LOG`.
 
 ## Project layout
 
@@ -293,6 +306,7 @@ jevme/
   see.py         "click the X": recall → ordinal → Jev pick → vision
   vision.py      Haiku screenshot fallback (structured outputs)
   ui_memory.py   UI cases + task recipes, with poisoning filters
+  workflows.py   safe completed-task history, repeated-routine mining, persistence + replay
   watch.py       learning from demonstration
   generator.py   Opus writes new tools; learned.py stores/renders them; policy.py gates them
   jev.py         minimal TypeSafe Jev client

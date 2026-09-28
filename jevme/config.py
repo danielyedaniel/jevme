@@ -30,6 +30,8 @@ load_env()
 TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
 JEV_MODEL = os.environ.get("JEVME_JEV_MODEL", "jev-latest")
 LOCALE = os.environ.get("JEVME_LOCALE", "en-US")
+WORKFLOW_LEARNING = os.environ.get("JEVME_WORKFLOW_LEARNING", "0").strip().lower() in {
+    "1", "true", "yes", "on"}
 
 # Decision thresholds
 COMMIT_CONFIDENCE = float(os.environ.get("JEVME_COMMIT_CONFIDENCE", "0.80"))
